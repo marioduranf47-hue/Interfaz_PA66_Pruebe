@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PA66 IM – Curvas con PCHIP y nudos (CSV externo)</title>
+  <meta name="description" content="Curvas PA66 con interpolación cúbica monótona (PCHIP), comparación e interpolación por temperatura.">
+  <style>
+    :root{
+      --bg: hsl(230 25% 8%); --bg-accent: linear-gradient(120deg, hsl(260 70% 8%/.6), hsl(210 70% 8%/.6));
+      --surface: hsl(230 20% 12%/.6); --text: hsl(210 20% 97%); --muted: hsl(215 15% 72%);
+      --border: hsl(220 16% 25%/.6); --accent: hsl(162 75% 55%); --accent-ink: hsl(165 100% 8%);
+      --radius: 16px; --shadow-lg: 0 20px 45px rgba(0,0,0,.35); --shadow-md: 0 10px 25px rgba(0,0,0,.25);
+      --container: 1120px;
+    }
+    @media (prefers-color-scheme: light){
+      :root{ --bg:hsl(210 40% 98%); --bg-accent:
+        radial-gradient(800px 400px at 10% -10%, hsl(210 100% 92%/.8), transparent 60%),
+        radial-gradient(900px 500px at 100% 0%, hsl(160 100% 90%/.7), transparent 60%);
+        --surface:#fff; --text:hsl(220 15% 10%); --muted:hsl(220 10% 40%); --border:hsl(220 14% 90%/.9);
+        --shadow-lg:0 18px 40px rgba(2,6,23,.12); --shadow-md:0 10px 22px rgba(2,6,23,.08); }
+    }
+    *{box-sizing:border-box} html,body{margin:0}
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial;color:var(--text);background:var(--bg);min-height:100vh;line-height:1.6}
+    .bg-ornament{position:fixed;inset:0;z-index:-1;background:var(--bg-accent);filter:blur(30px) saturate(1.1);opacity:.9}
+    header{position:sticky;top:0;z-index:50;backdrop-filter:blur(8px) saturate(1.2);-webkit-backdrop-filter:blur(8px) saturate(1.2);
+      border-bottom:1px solid var(--border);background:color-mix(in hsl,var(--bg),transparent 12%)}
+    .container{max-width:var(--container);margin:0 auto;padding:18px}
+    h1,h2{letter-spacing:.3px} h1{font-size:clamp(20px,2.4vw,28px);margin:0} h2{font-size:clamp(18px,2vw,22px);margin:0 0 6px}
+    .stack{display:flex;flex-direction:column;gap:18px} .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:16px}
+    .muted{color:var(--muted)} .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+    select,input[type="number"]{appearance:none;width:220px;padding:.75rem .9rem;border-radius:14px;border:1px solid var(--border);
+      background:color-mix(in hsl,var(--surface),transparent 20%);color:var(--text)}
+    .btn{display:inline-flex;align-items:center;gap:.5rem;padding:.75rem 1rem;border-radius:14px;border:1px solid var(--border);
+      background:color-mix(in hsl,var(--surface),transparent 10%);color:inherit;cursor:pointer;text-decoration:none;box-shadow:var(--shadow-md)}
+    .btn.primary{background:linear-gradient(180deg,color-mix(in hsl,var(--accent),white 8%),var(--accent));color:var(--accent-ink);
+      border-color:color-mix(in hsl,var(--accent),black 10%)}
+    #chart{width:100% !important;height:auto !important;aspect-ratio:21/9;background:#fff;border-radius:14px;transform:translateZ(0)}
+    @media (max-width:1024px){#chart{aspect-ratio:16/9}} @media (max-width:640px){#chart{aspect-ratio:4/3}}
+    .pill{padding:.3rem .6rem;border:1px solid var(--border);border-radius:999px;background:color-mix(in hsl,var(--surface),transparent 10%)}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="bg-ornament"></div>
+  <header>
+    <div class="container row" style="align-items:center">
+      <span class="pill">PA66 IM</span>
+      <h1 style="margin-left:10px">Curvas con PCHIP y nudos</h1>
+      <span class="muted" style="margin-left:auto">GitHub Pages • CSV externo</span>
+    </div>
+  </header>
+
+  <main class="container stack">
+    <section class="grid">
+      <article class="card stack">
+        <h2>Datos del autor</h2>
+        <div>
+          <div><strong>Kevin Uriel Burrola Saenz</strong></div>
+          <div><a href="mailto:al244149@alumnos.uacj.mx">al244149@alumnos.uacj.mx</a></div>
+          <div>Universidad Autónoma de Ciudad Juárez</div>
+          <div>Maestría en Ingeniería Industrial</div>
+        </div>
+        <p class="muted" style="margin-top:8px">En caso de detectar algún error o de tener una propuesta de mejora, comunicarte al correo descrito en esta sección.</p>
+      </article>
+
+      <article class="card stack">
+        <h2>Visualizar curvas (comparar 2)</h2>
+        <div class="row">
+          <div><label for="selA" class="muted">Temperatura A (°C)</label><br><select id="selA"></select></div>
+          <div><label for="selB" class="muted">Temperatura B (°C)</label><br><select id="selB"></select></div>
+          <button id="compare" class="btn primary">Comparar curvas</button>
+        </div>
+        <div id="picked" class="muted" style="margin-top:6px"></div>
+      </article>
+
+      <article class="card stack">
+        <h2>Interpolación por temperatura</h2>
+        <div class="row">
+          <div><label for="tTarget" class="muted">Temperatura objetivo (°C)</label><br>
+            <input id="tTarget" type="number" step="0.1" placeholder="Ej. 75" />
+          </div>
+          <button id="interp" class="btn">Interpolar</button>
+        </div>
+        <div id="hint" class="muted" style="margin-top:6px"></div>
+      </article>
+    </section>
+
+    <section class="card">
+      <div class="row" style="align-items:center">
+        <h2 class="grow" style="margin:0">Gráfica</h2>
+        <span class="muted">Esfuerzo (σ) vs. Deformación (ε)</span>
+      </div>
+      <canvas id="chart"></canvas>
+    </section>
+  </main>
+
+  <!-- 🔽🔽🔽 AQUÍ está la línea que pregunta: la ruta a tu CSV en el repo -->
+  <script>
+    const CSV_URL = './curvas_PA66_tidy.csv';
+  </script>
+
+  <script>
+  (function(){
+    const DPR = Math.max(2, window.devicePixelRatio || 1);
+    const DENSE_N=600, INTERP_N=600, RAW_SHOW=400, RAW_SIZE=2.2;
+    const KNOT_POS=[0.30,0.60,0.85], KNOT_SIZE=6;
+    const TARGET_TICKS_X=10, TARGET_TICKS_Y=10;
+
+    const selA=document.getElementById('selA'), selB=document.getElementById('selB');
+    const btnCompare=document.getElementById('compare'), tTarget=document.getElementById('tTarget'), btnInterp=document.getElementById('interp');
+    const picked=document.getElementById('picked'), hint=document.getElementById('hint');
+    const canvas=document.getElementById('chart');
+
+    let seriesMap=new Map(), temps=[], chart, lastInterpolated=null;
+
+    const asNum=v=>v===''||v==null?NaN:Number(String(v).replace(',', '.'));
+    const normalizeKey=s=>String(s||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').replace(/[^a-z0-9 _-]/g,'');
+    const findCol=(rows,pats)=>{const ks=Object.keys(rows[0]||{}); for(const k of ks){const nk=normalizeKey(k); for(const p of pats){ if(p.test(nk)) return k; }} return null;};
+    const PALETTE=["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"]; let colorIdx=0; const nextColor=()=>PALETTE[colorIdx++%PALETTE.length];
+    function niceStep(min,max,target){ const span=Math.max(1e-12,max-min), rough=span/target; const pow10=Math.pow(10,Math.floor(Math.log10(rough)));
+      const norm=rough/pow10; let nice = norm<=1?1:norm<=2?2:norm<=2.5?2.5:norm<=5?5:10; return nice*pow10; }
+    function subsampleEven(arr,maxN){ if(!arr||arr.length<=maxN) return arr||[]; const step=Math.ceil(arr.length/maxN), out=[]; for(let i=0;i<arr.length;i+=step) out.push(arr[i]); if(out.at(-1)!==arr.at(-1)) out.push(arr.at(-1)); return out; }
+
+    // --- PCHIP ---
+    function pchipSlopes(x,y){
+      const n=x.length, h=new Array(n-1), d=new Array(n-1);
+      for(let i=0;i<n-1;i++){ h[i]=x[i+1]-x[i]; d[i]=(y[i+1]-y[i])/h[i]; }
+      const m=new Array(n);
+      m[0]=((2*h[0]+h[1])*d[0]-h[0]*d[1])/(h[0]+h[1]);
+      if (Math.sign(m[0])!==Math.sign(d[0])) m[0]=0; else if (Math.sign(d[0])!==Math.sign(d[1]) && Math.abs(m[0])>2*Math.abs(d[0])) m[0]=2*d[0];
+      m[n-1]=((2*h[n-2]+h[n-3])*d[n-2]-h[n-2]*d[n-3])/(h[n-3]+h[n-2]);
+      if (Math.sign(m[n-1])!==Math.sign(d[n-2])) m[n-1]=0; else if (Math.sign(d[n-2])!==Math.sign(d[n-3]) && Math.abs(m[n-1])>2*Math.abs(d[n-2])) m[n-1]=2*d[n-2];
+      for(let i=1;i<=n-2;i++){
+        if (d[i-1]*d[i]<=0) m[i]=0;
+        else{ const w1=2*h[i]+h[i-1], w2=h[i]+2*h[i-1]; m[i]=(w1+w2)/(w1/d[i-1]+w2/d[i]); }
+      }
+      return {h,d,m};
+    }
+    function pchipEval(x,y,slopes,xq){
+      const n=x.length; if(xq<=x[0]) return y[0]; if(xq>=x[n-1]) return y[n-1];
+      let lo=0,hi=n-1; while(hi-lo>1){ const mid=(lo+hi)>>1; (x[mid]<=xq)?(lo=mid):(hi=mid); }
+      const h=x[lo+1]-x[lo], t=(xq-x[lo])/h, y0=y[lo], y1=y[lo+1], m0=slopes.m[lo], m1=slopes.m[lo+1];
+      const h00=(2*t**3-3*t**2+1), h10=(t**3-2*t**2+t), h01=(-2*t**3+3*t**2), h11=(t**3-t**2);
+      return h00*y0 + h10*h*m0 + h01*y1 + h11*h*m1;
+    }
+    function pchipSample(points,N){
+      if(!points || points.length<2) return points||[];
+      const x=points.map(p=>p.x), y=points.map(p=>p.y), slopes=pchipSlopes(x,y);
+      const xmin=x[0], xmax=x.at(-1);
+      const grid=Array.from({length:N},(_,i)=> xmin+(xmax-xmin)*i/(N-1));
+      return grid.map(xx=>({x:xx,y:pchipEval(x,y,slopes,xx)}));
+    }
+
+    // --- Carga CSV externo ---
+    function loadFromUrl(url){
+      Papa.parse(url,{download:true,header:true,skipEmptyLines:true,
+        complete:(res)=>{
+          try{
+            if(!res || !res.data || !res.data.length) throw new Error('CSV vacío.');
+            detectFromTidy(res.data);
+            fillSelect(selA,temps,temps[0]); fillSelect(selB,temps.at(-1));
+            compareCurves();
+          }catch(e){ alert('Error leyendo CSV: '+e.message); }
+        },
+        error:(e)=>alert('No se pudo descargar el CSV: '+e.message)
+      });
+    }
+
+    function detectFromTidy(rows){
+      const colT=findCol(rows,[/^temp/,/^t\b/]), colX=findCol(rows,[/^deform/,/^strain/,/^xtens/]), colY=findCol(rows,[/^esfuer/,/^stress/,/^sigma/,/^sig/]);
+      if(!colT||!colX||!colY) throw new Error('Encabezados esperados: Temperatura, Deformacion/Strain/Xtension, Esfuerzo/Stress.');
+      seriesMap.clear();
+      rows.forEach(r=>{ const T=asNum(r[colT]), x=asNum(r[colX]), y=asNum(r[colY]); if(!Number.isFinite(T)||!Number.isFinite(x)||!Number.isFinite(y)) return;
+        if(!seriesMap.has(T)) seriesMap.set(T,[]); seriesMap.get(T).push({x,y}); });
+      for(const [T,arr] of seriesMap.entries()) arr.sort((a,b)=>a.x-b.x);
+      temps=[...seriesMap.keys()].sort((a,b)=>a-b);
+    }
+    function fillSelect(el,arr,def){ el.innerHTML=''; arr.forEach(t=>{const o=document.createElement('option'); o.value=t; o.textContent=`${t} °C`; if(t===def) o.selected=true; el.appendChild(o);}); }
+
+    const lineDataset=(label,data,color,dashed=false)=>({type:'line',label,data,borderColor:color,backgroundColor:color,borderWidth:2,
+      cubicInterpolationMode:undefined,tension:0,pointRadius:0,borderDash:dashed?[6,4]:undefined,fill:false,showLine:true});
+    const pointsDataset=(label,data,color)=>({type:'line',label:label+' • puntos',data,borderColor:'transparent',backgroundColor:color,pointBorderColor:color,
+      pointBackgroundColor:color,pointRadius:RAW_SIZE,pointHoverRadius:RAW_SIZE+1.2,showLine:false});
+    const knotDataset=(label,data,color)=>({type:'scatter',label:label+' • nudos',data,showLine:false,pointRadius:KNOT_SIZE,pointBackgroundColor:color,pointBorderColor:'#fff',pointBorderWidth:1.5});
+    const PALETTE2=["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"]; let colorIdx2=0; const nextColor=()=>PALETTE2[colorIdx2++%PALETTE2.length];
+
+    function makeKnotsFromDense(dense){
+      if(!dense || dense.length<2) return []; const xmin=dense[0].x, xmax=dense.at(-1).x;
+      return KNOT_POS.map(f=>{ const x=xmin+(xmax-xmin)*f; let best=dense[0], bd=Math.abs(dense[0].x-x);
+        for(const p of dense){ const d=Math.abs(p.x-x); if(d<bd){bd=d; best=p;} } return {x:best.x,y:best.y}; });
+    }
+    function niceOpts(datasets){
+      let xMax=-Infinity,yMax=-Infinity; for(const ds of datasets){ for(const p of ds.data){ if(p.x>xMax) xMax=p.x; if(p.y>yMax) yMax=p.y; } }
+      if(!isFinite(xMax)) xMax=1; if(!isFinite(yMax)) yMax=1;
+      const xs=niceStep(0,xMax,TARGET_TICKS_X), ys=niceStep(0,yMax,TARGET_TICKS_Y);
+      const xMaxN=Math.ceil(xMax/xs)*xs, yMaxN=Math.ceil(yMax/ys)*ys;
+      return { x:{min:0,max:xMaxN,step:xs}, y:{min:0,max:yMaxN,step:ys} };
+    }
+    function makeChart(datasets){
+      if(chart) chart.destroy();
+      const axes=niceOpts(datasets);
+      chart=new Chart(canvas,{type:'line',data:{datasets},options:{
+        responsive:true,parsing:false,maintainAspectRatio:false,devicePixelRatio:DPR,
+        interaction:{mode:'nearest',intersect:false},
+        plugins:{legend:{display:true,labels:{color:'#333',usePointStyle:true}},
+          tooltip:{backgroundColor:'rgba(20,20,28,.9)',borderColor:'rgba(255,255,255,.08)',borderWidth:1,
+                   callbacks:{label:(c)=>`(ε=${c.parsed.x.toFixed(4)}, σ=${c.parsed.y.toFixed(2)})`}},
+          decimation:{enabled:true,algorithm:'lttb',samples:1500}},
+        scales:{ x:{type:'linear',min:axes.x.min,max:axes.x.max,ticks:{stepSize:axes.x.step,color:'#333'},grid:{color:'#e6e6e6'},title:{display:true,text:'Deformación (ε)',color:'#333'}},
+                 y:{type:'linear',min:axes.y.min,max:axes.y.max,ticks:{stepSize:axes.y.step,color:'#333'},grid:{color:'#e6e6e6'},title:{display:true,text:'Esfuerzo (σ)',color:'#333'}} },
+        elements:{point:{radius:0}}
+      }});
+    }
+
+    function buildCurveDatasets(T,raw,color){
+      const dense=pchipSample(raw,DENSE_N);
+      return [ lineDataset(`${T} °C (línea)`,dense,color),
+               pointsDataset(`${T} °C`,subsampleEven(raw,RAW_SHOW),color),
+               knotDataset(`${T} °C`,makeKnotsFromDense(dense),color) ];
+    }
+    function compareCurves(){
+      const a=Number(selA.value), b=Number(selB.value); const ds=[];
+      if(Number.isFinite(a)){const c=nextColor(); ds.push(...buildCurveDatasets(a,seriesMap.get(a),c));}
+      if(Number.isFinite(b)){const c=nextColor(); ds.push(...buildCurveDatasets(b,seriesMap.get(b),c));}
+      if(lastInterpolated){ const c=nextColor(); ds.unshift(lineDataset(`Interp ${lastInterpolated.T} °C`,lastInterpolated.data,c,true));
+        ds.unshift(knotDataset(`Interp ${lastInterpolated.T} °C`,makeKnotsFromDense(lastInterpolated.data),c)); }
+      picked.textContent=`Curvas: ${Number.isFinite(a)?a+' °C':''}${Number.isFinite(b)?' | '+b+' °C':''}`; makeChart(ds);
+    }
+
+    function interpolateAtTemp(Tstar){
+      if(temps.length<2) throw new Error('Se requieren al menos 2 temperaturas.');
+      let t1=null,t2=null; for(let i=0;i<temps.length-1;i++){ if(Tstar>=temps[i]&&Tstar<=temps[i+1]){t1=temps[i]; t2=temps[i+1]; break; } }
+      if(t1===null){ if(Tstar<temps[0]){t1=temps[0]; t2=temps[1];} else {t1=temps.at(-2); t2=temps.at(-1);} }
+      const A=seriesMap.get(t1).slice(), B=seriesMap.get(t2).slice();
+      const xmin=Math.max(A[0].x,B[0].x), xmax=Math.min(A.at(-1).x,B.at(-1).x);
+      const grid=Array.from({length:INTERP_N},(_,i)=> xmin+(xmax-xmin)*i/(INTERP_N-1));
+      const xA=A.map(p=>p.x), yA=A.map(p=>p.y), sA=pchipSlopes(xA,yA);
+      const xB=B.map(p=>p.x), yB=B.map(p=>p.y), sB=pchipSlopes(xB,yB);
+      const alpha=(Tstar-t1)/(t2-t1);
+      const data=grid.map(x=>({x,y: pchipEval(xA,yA,sA,x) + alpha*(pchipEval(xB,yB,sB,x)-pchipEval(xA,yA,sA,x))}));
+      lastInterpolated={T:Tstar,data,t1,t2}; return lastInterpolated;
+    }
+
+    btnCompare.addEventListener('click', compareCurves);
+    btnInterp.addEventListener('click', ()=>{ const T=Number(tTarget.value); if(!Number.isFinite(T)){alert('Ingresa una temperatura objetivo.');return;}
+      try{ const res=interpolateAtTemp(T); hint.textContent=`Interpolado usando: ${res.t1} °C y ${res.t2} °C`; compareCurves();
+      }catch(e){ alert(e.message); }});
+
+    new ResizeObserver(()=>{ if(chart){ chart.options.devicePixelRatio=DPR; chart.resize(); }}).observe(canvas);
+    window.addEventListener('orientationchange', ()=> chart && chart.resize());
+
+    // 🔹 INICIO: carga el CSV externo
+    loadFromUrl(CSV_URL);
+  })();
+  </script>
+</body>
+</html>
