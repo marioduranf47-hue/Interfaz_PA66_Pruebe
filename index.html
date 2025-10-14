@@ -19,6 +19,7 @@
       --shadow-lg: 0 20px 45px rgba(0,0,0,.35);
       --shadow-md: 0 10px 25px rgba(0,0,0,.25);
       --container: 1120px;
+      --sidebar: 420px; /* ancho de la tarjeta derecha (tabla) en desktop */
     }
     @media (prefers-color-scheme: light){
       :root{
@@ -49,6 +50,25 @@
       background:color-mix(in hsl,var(--surface),transparent 10%);color:inherit;cursor:pointer;text-decoration:none;box-shadow:var(--shadow-md)}
     .btn.primary{background:linear-gradient(180deg,color-mix(in hsl,var(--accent),white 8%),var(--accent));color:var(--accent-ink);
       border-color:color-mix(in hsl,var(--accent),black 10%)}
+
+    /* ====== LAYOUT de Gráfica + Tabla (lado derecho) ====== */
+    .chart-layout{
+      display:grid;
+      grid-template-columns: 1fr;     /* móvil: una columna */
+      gap:18px;
+    }
+    @media (min-width: 1100px){
+      .chart-layout{
+        grid-template-columns: minmax(0,1fr) minmax(340px,var(--sidebar)); /* gráfica | tabla derecha */
+        align-items:start;
+      }
+      /* que la tarjeta de la tabla sea sticky para que “se quede” a la derecha */
+      .sticky-card{
+        position: sticky;
+        top: 88px; /* debajo del header */
+      }
+    }
+
     /* Canvas apaisado y nítido */
     #chart{width:100% !important;height:auto !important;aspect-ratio:21/9;background:#fff;border-radius:14px;transform:translateZ(0)}
     @media (max-width:1024px){#chart{aspect-ratio:16/9}}
@@ -56,7 +76,7 @@
     .pill{padding:.3rem .6rem;border:1px solid var(--border);border-radius:999px;background:color-mix(in hsl,var(--surface),transparent 10%)}
 
     /* Tabla interpolada */
-    .table-wrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:12px;background:#fff}
+    .table-wrap{max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:12px;background:#fff}
     table{width:100%;border-collapse:collapse;font-size:14px;color:#111}
     thead th{position:sticky;top:0;background:#fafafa;border-bottom:1px solid #e5e7eb;padding:.6rem .75rem;text-align:left}
     tbody td{border-bottom:1px solid #f1f5f9;padding:.45rem .75rem}
@@ -117,32 +137,35 @@
       </article>
     </section>
 
-    <!-- Gráfica -->
-    <section class="card">
-      <div class="row" style="align-items:center">
-        <h2 class="grow" style="margin:0">Gráfica</h2>
-        <span class="muted">Esfuerzo (σ) vs. Deformación (ε)</span>
-      </div>
-      <canvas id="chart"></canvas>
-    </section>
-
-    <!-- Tabla de valores de la curva interpolada -->
-    <section class="card stack" id="tableCard" style="display:none">
-      <div class="table-actions">
-        <h2 style="margin:0">Tabla – Interpolación</h2>
+    <!-- Gráfica + Tabla al lado derecho en desktop -->
+    <section class="chart-layout">
+      <!-- Gráfica -->
+      <article class="card">
         <div class="row" style="align-items:center">
-          <span class="muted" id="tblMeta"></span>
-          <button class="btn" id="btnDownload">Descargar CSV interpolado</button>
+          <h2 class="grow" style="margin:0">Gráfica</h2>
+          <span class="muted">Esfuerzo (σ) vs. Deformación (ε)</span>
         </div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>#</th><th>Deformación ε</th><th>Esfuerzo σ</th></tr>
-          </thead>
-          <tbody id="tblBody"></tbody>
-        </table>
-      </div>
+        <canvas id="chart"></canvas>
+      </article>
+
+      <!-- Tabla de valores de la curva interpolada (sidebar) -->
+      <article class="card stack sticky-card" id="tableCard" style="display:none">
+        <div class="table-actions">
+          <h2 style="margin:0">Tabla – Interpolación</h2>
+          <div class="row" style="align-items:center">
+            <span class="muted" id="tblMeta"></span>
+            <button class="btn" id="btnDownload">Descargar CSV interpolado</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Deformación ε</th><th>Esfuerzo σ</th></tr>
+            </thead>
+            <tbody id="tblBody"></tbody>
+          </table>
+        </div>
+      </article>
     </section>
   </main>
 
@@ -157,11 +180,11 @@
     const DPR = Math.max(2, window.devicePixelRatio || 1);
 
     /* === Densidad y estética === */
-    const DENSE_N   = 600;     // puntos de la curva PCHIP
-    const INTERP_N  = 600;     // puntos de curva interpolada en T
-    const RAW_SHOW  = 400;     // puntos crudos visibles (submuestreados)
-    const RAW_SIZE  = 2.2;     // radio de puntos crudos
-    const KNOT_POS  = [0.30, 0.60, 0.85];  // % del rango en X
+    const DENSE_N   = 600;
+    const INTERP_N  = 600;
+    const RAW_SHOW  = 400;
+    const RAW_SIZE  = 2.2;
+    const KNOT_POS  = [0.30, 0.60, 0.85];
     const KNOT_SIZE = 6;
 
     /* === Ejes 10×10 === */
@@ -188,7 +211,6 @@
     function subsampleEven(arr,maxN){ if(!arr||arr.length<=maxN) return arr||[]; const step=Math.ceil(arr.length/maxN), out=[];
       for(let i=0;i<arr.length;i+=step) out.push(arr[i]); if(out.at(-1)!==arr.at(-1)) out.push(arr.at(-1)); return out; }
 
-    /* === Mensajes en página === */
     function showHint(msg, isError=false){
       const host = hint || picked;
       if (host) {
@@ -197,7 +219,7 @@
       }
     }
 
-    /* === PCHIP (Fritsch–Carlson) === */
+    /* === PCHIP === */
     function pchipSlopes(x,y){
       const n=x.length; const h=new Array(n-1), d=new Array(n-1);
       for(let i=0;i<n-1;i++){ h[i]=x[i+1]-x[i]; d[i]=(y[i+1]-y[i])/h[i]; }
@@ -215,7 +237,7 @@
         else{
           const w1 = 2*h[i] + h[i-1];
           const w2 = h[i] + 2*h[i-1];
-          m[i] = (w1 + w2) / (w1/d[i-1] + w2/d[i]); // media armónica ponderada
+          m[i] = (w1 + w2) / (w1/d[i-1] + w2/d[i]);
         }
       }
       return {h,d,m};
@@ -239,7 +261,7 @@
       return grid.map(xx=>({x:xx,y:pchipEval(x,y,slopes,xx)}));
     }
 
-    /* === Cargar CSV desde URL === */
+    /* === Cargar CSV === */
     function loadFromUrl(url){
       Papa.parse(url, {
         download: true,
@@ -253,10 +275,9 @@
             if (!rows.length) throw new Error('CSV vacío o encabezado incorrecto.');
             detectFromTidy(rows);
             if (!temps.length) throw new Error('No se detectaron temperaturas.');
-            fillSelect(selA, temps, temps[0]);          // A = primera T
-            fillSelect(selB, temps, temps[temps.length - 1]); // B = última T
+            fillSelect(selA, temps, temps[0]);
+            fillSelect(selB, temps, temps[temps.length - 1]);
             compareCurves();
-            // Mensaje solicitado
             showHint('Este simulador funciona con temperaturas desde -40 hasta 150 °C.');
           } catch (err) {
             showHint('Error leyendo CSV: ' + err.message, true);
@@ -427,13 +448,9 @@
     function renderInterpTable(curve){
       if(!curve || !curve.data || !curve.data.length){ tableCard.style.display='none'; return; }
       tblBody.innerHTML='';
-      // Llenar filas
       curve.data.forEach((p,idx)=>{
         const tr=document.createElement('tr');
-        const tdI=document.createElement('td'); tdI.textContent=String(idx+1);
-        const tdX=document.createElement('td'); tdX.textContent=p.x.toFixed(6);
-        const tdY=document.createElement('td'); tdY.textContent=p.y.toFixed(4);
-        tr.appendChild(tdI); tr.appendChild(tdX); tr.appendChild(tdY);
+        tr.innerHTML = `<td>${idx+1}</td><td>${p.x.toFixed(6)}</td><td>${p.y.toFixed(4)}</td>`;
         tblBody.appendChild(tr);
       });
       tblMeta.textContent = `T = ${curve.T} °C • ${curve.data.length} puntos (ε, σ)`;
