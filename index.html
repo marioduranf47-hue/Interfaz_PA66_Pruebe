@@ -225,7 +225,7 @@
             fillSelect(selA, temps, temps[0]);          // OK
             fillSelect(selB, temps, temps.at(-1));
             compareCurves();
-            showHint(`Listo. Detectadas ${temps.length} curvas: ${temps.join(', ')} °C`);
+            showHint('');
           } catch (err) {
             showHint('Error leyendo CSV: ' + err.message, true);
           }
@@ -400,4 +400,5 @@
   </script>
 </body>
 </html>
+
 
