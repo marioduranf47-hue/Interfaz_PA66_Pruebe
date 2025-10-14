@@ -54,6 +54,13 @@
     @media (max-width:1024px){#chart{aspect-ratio:16/9}}
     @media (max-width:640px){#chart{aspect-ratio:4/3}}
     .pill{padding:.3rem .6rem;border:1px solid var(--border);border-radius:999px;background:color-mix(in hsl,var(--surface),transparent 10%)}
+
+    /* Tabla interpolada */
+    .table-wrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:12px;background:#fff}
+    table{width:100%;border-collapse:collapse;font-size:14px;color:#111}
+    thead th{position:sticky;top:0;background:#fafafa;border-bottom:1px solid #e5e7eb;padding:.6rem .75rem;text-align:left}
+    tbody td{border-bottom:1px solid #f1f5f9;padding:.45rem .75rem}
+    .table-actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
@@ -118,6 +125,25 @@
       </div>
       <canvas id="chart"></canvas>
     </section>
+
+    <!-- Tabla de valores de la curva interpolada -->
+    <section class="card stack" id="tableCard" style="display:none">
+      <div class="table-actions">
+        <h2 style="margin:0">Tabla – Interpolación</h2>
+        <div class="row" style="align-items:center">
+          <span class="muted" id="tblMeta"></span>
+          <button class="btn" id="btnDownload">Descargar CSV interpolado</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Deformación ε</th><th>Esfuerzo σ</th></tr>
+          </thead>
+          <tbody id="tblBody"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <!-- Ruta ABSOLUTA a tu CSV en GitHub Pages -->
@@ -146,6 +172,12 @@
     const btnCompare=document.getElementById('compare'), tTarget=document.getElementById('tTarget'), btnInterp=document.getElementById('interp');
     const picked=document.getElementById('picked'), hint=document.getElementById('hint');
     const canvas=document.getElementById('chart');
+
+    /* Tabla refs */
+    const tableCard=document.getElementById('tableCard');
+    const tblBody=document.getElementById('tblBody');
+    const tblMeta=document.getElementById('tblMeta');
+    const btnDownload=document.getElementById('btnDownload');
 
     let seriesMap=new Map(), temps=[], chart, lastInterpolated=null;
 
@@ -199,7 +231,7 @@
       return h00*y0 + h10*h*m0 + h01*y1 + h11*h*m1;
     }
     function pchipSample(points,N){
-      if(!points || points.length<2) return points||{}
+      if(!points || points.length<2) return points||[];
       const x = points.map(p=>p.x), y=points.map(p=>p.y);
       const slopes = pchipSlopes(x,y);
       const xmin=x[0], xmax=x.at(-1);
@@ -222,7 +254,7 @@
             detectFromTidy(rows);
             if (!temps.length) throw new Error('No se detectaron temperaturas.');
             fillSelect(selA, temps, temps[0]);          // A = primera T
-            fillSelect(selB, temps, temps.at(-1));      // B = última T
+            fillSelect(selB, temps, temps[temps.length - 1]); // B = última T
             compareCurves();
             // Mensaje solicitado
             showHint('Este simulador funciona con temperaturas desde -40 hasta 150 °C.');
@@ -284,7 +316,16 @@
     }
 
     /* === UI helpers === */
-    function fillSelect(el,arr,def){ el.innerHTML=''; arr.forEach(t=>{const o=document.createElement('option'); o.value=t; o.textContent=`${t} °C`; if(t===def) o.selected=true; el.appendChild(o);}); }
+    function fillSelect(el,arr,def){
+      el.innerHTML='';
+      arr.forEach(t=>{
+        const o=document.createElement('option');
+        o.value=t;
+        o.textContent=`${t} °C`;
+        if(t===def) o.selected=true;
+        el.appendChild(o);
+      });
+    }
     const lineDataset=(label,data,color,dashed=false)=>({type:'line',label,data,borderColor:color,backgroundColor:color,borderWidth:2,
       cubicInterpolationMode:undefined,tension:0,pointRadius:0,borderDash:dashed?[6,4]:undefined,fill:false,showLine:true});
     const pointsDataset=(label,data,color)=>({type:'line',label:label+' • puntos',data,borderColor:'transparent',backgroundColor:color,pointBorderColor:color,
@@ -382,13 +423,50 @@
       lastInterpolated={T:Tstar,data,t1,t2}; return lastInterpolated;
     }
 
+    /* === Tabla: render y descarga === */
+    function renderInterpTable(curve){
+      if(!curve || !curve.data || !curve.data.length){ tableCard.style.display='none'; return; }
+      tblBody.innerHTML='';
+      // Llenar filas
+      curve.data.forEach((p,idx)=>{
+        const tr=document.createElement('tr');
+        const tdI=document.createElement('td'); tdI.textContent=String(idx+1);
+        const tdX=document.createElement('td'); tdX.textContent=p.x.toFixed(6);
+        const tdY=document.createElement('td'); tdY.textContent=p.y.toFixed(4);
+        tr.appendChild(tdI); tr.appendChild(tdX); tr.appendChild(tdY);
+        tblBody.appendChild(tr);
+      });
+      tblMeta.textContent = `T = ${curve.T} °C • ${curve.data.length} puntos (ε, σ)`;
+      tableCard.style.display='block';
+    }
+
+    function downloadInterpCSV(curve){
+      if(!curve || !curve.data) return;
+      const header = 'epsilon,strain_sigma\n';
+      const rows = curve.data.map(p=>`${p.x},${p.y}`).join('\n');
+      const blob = new Blob([header + rows], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `interpolado_${curve.T}C.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
     /* === Eventos === */
     btnCompare.addEventListener('click', compareCurves);
     btnInterp.addEventListener('click', ()=>{
       const T=Number(tTarget.value); if(!Number.isFinite(T)){showHint('Ingresa una temperatura objetivo.', true);return;}
-      try{ const res=interpolateAtTemp(T); hint.textContent=`Interpolado usando: ${res.t1} °C y ${res.t2} °C`; compareCurves(); }
-      catch(err){ showHint(err.message, true); }
+      try{
+        const res=interpolateAtTemp(T);
+        hint.textContent=`Interpolado usando: ${res.t1} °C y ${res.t2} °C`;
+        compareCurves();
+        renderInterpTable(res);
+      }catch(err){ showHint(err.message, true); }
     });
+    btnDownload.addEventListener('click', ()=> lastInterpolated && downloadInterpCSV(lastInterpolated));
 
     const ro=new ResizeObserver(()=>{ if(chart){ chart.options.devicePixelRatio=DPR; chart.resize(); }});
     ro.observe(canvas);
