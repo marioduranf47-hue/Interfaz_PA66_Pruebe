@@ -19,7 +19,6 @@
       --shadow-lg: 0 20px 45px rgba(0,0,0,.35);
       --shadow-md: 0 10px 25px rgba(0,0,0,.25);
       --container: 1120px;
-      --sidebar: 420px; /* ancho de la tarjeta derecha (tabla) en desktop */
     }
     @media (prefers-color-scheme: light){
       :root{
@@ -51,35 +50,18 @@
     .btn.primary{background:linear-gradient(180deg,color-mix(in hsl,var(--accent),white 8%),var(--accent));color:var(--accent-ink);
       border-color:color-mix(in hsl,var(--accent),black 10%)}
 
-    /* ====== LAYOUT de Gráfica + Tabla (lado derecho) ====== */
-    .chart-layout{
-      display:grid;
-      grid-template-columns: 1fr;     /* móvil: una columna */
-      gap:18px;
-    }
-    @media (min-width: 1100px){
-      .chart-layout{
-        grid-template-columns: minmax(0,1fr) minmax(340px,var(--sidebar)); /* gráfica | tabla derecha */
-        align-items:start;
-      }
-      /* que la tarjeta de la tabla sea sticky para que “se quede” a la derecha */
-      .sticky-card{
-        position: sticky;
-        top: 88px; /* debajo del header */
-      }
-    }
-
     /* Canvas apaisado y nítido */
     #chart{width:100% !important;height:auto !important;aspect-ratio:21/9;background:#fff;border-radius:14px;transform:translateZ(0)}
     @media (max-width:1024px){#chart{aspect-ratio:16/9}}
     @media (max-width:640px){#chart{aspect-ratio:4/3}}
     .pill{padding:.3rem .6rem;border:1px solid var(--border);border-radius:999px;background:color-mix(in hsl,var(--surface),transparent 10%)}
 
-    /* Tabla interpolada */
+    /* Tabla interpolada (debajo de la gráfica) */
     .table-wrap{max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:12px;background:#fff}
     table{width:100%;border-collapse:collapse;font-size:14px;color:#111}
     thead th{position:sticky;top:0;background:#fafafa;border-bottom:1px solid #e5e7eb;padding:.6rem .75rem;text-align:left}
     tbody td{border-bottom:1px solid #f1f5f9;padding:.45rem .75rem}
+    .hl{background:#fff7cc} /* resalte de fila */
     .table-actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
@@ -137,35 +119,49 @@
       </article>
     </section>
 
-    <!-- Gráfica + Tabla al lado derecho en desktop -->
-    <section class="chart-layout">
-      <!-- Gráfica -->
-      <article class="card">
-        <div class="row" style="align-items:center">
-          <h2 class="grow" style="margin:0">Gráfica</h2>
-          <span class="muted">Esfuerzo (σ) vs. Deformación (ε)</span>
-        </div>
-        <canvas id="chart"></canvas>
-      </article>
+    <!-- Gráfica -->
+    <section class="card">
+      <div class="row" style="align-items:center">
+        <h2 class="grow" style="margin:0">Gráfica</h2>
+        <span class="muted">Esfuerzo (σ) vs. Deformación (ε)</span>
+      </div>
+      <canvas id="chart"></canvas>
+    </section>
 
-      <!-- Tabla de valores de la curva interpolada (sidebar) -->
-      <article class="card stack sticky-card" id="tableCard" style="display:none">
-        <div class="table-actions">
-          <h2 style="margin:0">Tabla – Interpolación</h2>
-          <div class="row" style="align-items:center">
-            <span class="muted" id="tblMeta"></span>
-            <button class="btn" id="btnDownload">Descargar CSV interpolado</button>
-          </div>
+    <!-- Tabla (debajo de la gráfica) + consultas puntuales -->
+    <section class="card stack" id="tableCard" style="display:none">
+      <div class="table-actions">
+        <h2 style="margin:0">Tabla – Interpolación</h2>
+        <div class="row" style="align-items:center">
+          <span class="muted" id="tblMeta"></span>
+          <button class="btn" id="btnDownload">Descargar CSV interpolado</button>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>#</th><th>Deformación ε</th><th>Esfuerzo σ</th></tr>
-            </thead>
-            <tbody id="tblBody"></tbody>
-          </table>
+      </div>
+
+      <!-- Mini laboratorio de consultas -->
+      <div class="row">
+        <div>
+          <label class="muted" for="qEps">Calcular σ a partir de ε</label><br>
+          <input id="qEps" type="number" step="0.0001" placeholder="ε (ej. 0.1234)" />
+          <button class="btn" id="btnSolveSigma">σ(ε)</button>
+          <span class="muted" id="outSigma"></span>
         </div>
-      </article>
+        <div>
+          <label class="muted" for="qSig">Calcular ε a partir de σ</label><br>
+          <input id="qSig" type="number" step="0.01" placeholder="σ (ej. 42.5)" />
+          <button class="btn" id="btnSolveEps">ε(σ)</button>
+          <span class="muted" id="outEps"></span>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Deformación ε</th><th>Esfuerzo σ</th></tr>
+          </thead>
+          <tbody id="tblBody"></tbody>
+        </table>
+      </div>
     </section>
   </main>
 
@@ -176,7 +172,7 @@
 
   <script>
   (function(){
-    /* === Calidad de render === */
+    /* === Calidad === */
     const DPR = Math.max(2, window.devicePixelRatio || 1);
 
     /* === Densidad y estética === */
@@ -196,15 +192,18 @@
     const picked=document.getElementById('picked'), hint=document.getElementById('hint');
     const canvas=document.getElementById('chart');
 
-    /* Tabla refs */
+    /* Tabla & consultas */
     const tableCard=document.getElementById('tableCard');
     const tblBody=document.getElementById('tblBody');
     const tblMeta=document.getElementById('tblMeta');
     const btnDownload=document.getElementById('btnDownload');
+    const qEps=document.getElementById('qEps'), qSig=document.getElementById('qSig');
+    const outSigma=document.getElementById('outSigma'), outEps=document.getElementById('outEps');
+    const btnSolveSigma=document.getElementById('btnSolveSigma'), btnSolveEps=document.getElementById('btnSolveEps');
 
     let seriesMap=new Map(), temps=[], chart, lastInterpolated=null;
 
-    /* === Utilidades === */
+    /* === Utils === */
     const PALETTE=["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"]; let colorIdx=0; const nextColor=()=>PALETTE[colorIdx++%PALETTE.length];
     function niceStep(min,max,target){ const span=Math.max(1e-12,max-min), rough=span/target; const pow10=Math.pow(10,Math.floor(Math.log10(rough)));
       const norm=rough/pow10; let nice = norm<=1?1:norm<=2?2:norm<=2.5?2.5:norm<=5?5:10; return nice*pow10; }
@@ -444,6 +443,56 @@
       lastInterpolated={T:Tstar,data,t1,t2}; return lastInterpolated;
     }
 
+    /* === Interpolación directa σ(ε) y “inversa” ε(σ) sobre la curva interpolada === */
+    function sigmaFromEps(curve, eps){
+      if(!curve || !curve.data || !curve.data.length) return null;
+      const arr = curve.data;         // arr ordenado por x (= ε)
+      if (eps <= arr[0].x) return arr[0].y;
+      if (eps >= arr.at(-1).x) return arr.at(-1).y;
+      // búsqueda binaria
+      let lo=0, hi=arr.length-1;
+      while(hi-lo>1){
+        const mid=(lo+hi)>>1;
+        (arr[mid].x <= eps) ? lo=mid : hi=mid;
+      }
+      const x0=arr[lo].x,  y0=arr[lo].y;
+      const x1=arr[hi].x,  y1=arr[hi].y;
+      const t=(eps-x0)/(x1-x0);
+      return y0 + t*(y1-y0);
+    }
+
+    function epsFromSigma(curve, sig){
+      if(!curve || !curve.data || !curve.data.length) return null;
+      const arr = curve.data;         // y suele ser monótono creciente
+      // buscamos segmento donde y cruza sig
+      for(let i=0;i<arr.length-1;i++){
+        const y0=arr[i].y, y1=arr[i+1].y;
+        if ((sig>=y0 && sig<=y1) || (sig<=y0 && sig>=y1)){
+          const x0=arr[i].x, x1=arr[i+1].x;
+          const t=(sig - y0)/(y1 - y0 || 1e-12);
+          return x0 + t*(x1 - x0);
+        }
+      }
+      // fuera de rango → devolvemos extremo más cercano
+      return (Math.abs(sig-arr[0].y) < Math.abs(sig-arr.at(-1).y)) ? arr[0].x : arr.at(-1).x;
+    }
+
+    function highlightClosestRow(value, by='x'){ // by: 'x' o 'y'
+      // resalta la fila cuyo ε (o σ) esté más cerca del valor consultado
+      const rows = Array.from(tblBody.querySelectorAll('tr'));
+      if (!rows.length) return;
+      rows.forEach(r=>r.classList.remove('hl'));
+      let best=null, bestDist=Infinity, bestEl=null;
+      rows.forEach(r=>{
+        const eps=parseFloat(r.children[1].textContent);
+        const sig=parseFloat(r.children[2].textContent);
+        const v = (by==='x') ? eps : sig;
+        const d = Math.abs(v - value);
+        if(d<bestDist){ bestDist=d; best=v; bestEl=r; }
+      });
+      if (bestEl){ bestEl.classList.add('hl'); bestEl.scrollIntoView({block:'center',behavior:'smooth'}); }
+    }
+
     /* === Tabla: render y descarga === */
     function renderInterpTable(curve){
       if(!curve || !curve.data || !curve.data.length){ tableCard.style.display='none'; return; }
@@ -459,7 +508,7 @@
 
     function downloadInterpCSV(curve){
       if(!curve || !curve.data) return;
-      const header = 'epsilon,strain_sigma\n';
+      const header = 'epsilon,sigma\n';
       const rows = curve.data.map(p=>`${p.x},${p.y}`).join('\n');
       const blob = new Blob([header + rows], {type:'text/csv;charset=utf-8;'});
       const url = URL.createObjectURL(blob);
@@ -481,9 +530,27 @@
         hint.textContent=`Interpolado usando: ${res.t1} °C y ${res.t2} °C`;
         compareCurves();
         renderInterpTable(res);
+        tableCard.scrollIntoView({behavior:'smooth'});
       }catch(err){ showHint(err.message, true); }
     });
+
     btnDownload.addEventListener('click', ()=> lastInterpolated && downloadInterpCSV(lastInterpolated));
+
+    btnSolveSigma.addEventListener('click', ()=>{
+      const eps = Number(qEps.value);
+      if(!Number.isFinite(eps) || !lastInterpolated){ outSigma.textContent=''; return; }
+      const sig = sigmaFromEps(lastInterpolated, eps);
+      outSigma.textContent = Number.isFinite(sig) ? `→ σ ≈ ${sig.toFixed(4)}` : 'Fuera de rango';
+      highlightClosestRow(eps,'x');
+    });
+
+    btnSolveEps.addEventListener('click', ()=>{
+      const sig = Number(qSig.value);
+      if(!Number.isFinite(sig) || !lastInterpolated){ outEps.textContent=''; return; }
+      const eps = epsFromSigma(lastInterpolated, sig);
+      outEps.textContent = Number.isFinite(eps) ? `→ ε ≈ ${eps.toFixed(6)}` : 'Fuera de rango';
+      highlightClosestRow(sig,'y');
+    });
 
     const ro=new ResizeObserver(()=>{ if(chart){ chart.options.devicePixelRatio=DPR; chart.resize(); }});
     ro.observe(canvas);
