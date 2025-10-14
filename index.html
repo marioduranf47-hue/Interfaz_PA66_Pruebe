@@ -222,8 +222,8 @@
             showHint(`CSV cargado: ${rows.length} filas. Procesando…`);
             detectFromTidy(rows);
             if (!temps.length) throw new Error('No se detectaron temperaturas.');
-            fillSelect(selA, temps, temps[0]);
-            fillSelect(selB, temps[temps.length - 1]);
+            fillSelect(selA, temps, temps[0]);          // OK
+            fillSelect(selB, temps, temps.at(-1));
             compareCurves();
             showHint(`Listo. Detectadas ${temps.length} curvas: ${temps.join(', ')} °C`);
           } catch (err) {
@@ -400,3 +400,4 @@
   </script>
 </body>
 </html>
+
