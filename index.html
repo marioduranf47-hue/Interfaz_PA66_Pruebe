@@ -61,7 +61,7 @@
     table{width:100%;border-collapse:collapse;font-size:14px;color:#111}
     thead th{position:sticky;top:0;background:#fafafa;border-bottom:1px solid #e5e7eb;padding:.6rem .75rem;text-align:left}
     tbody td{border-bottom:1px solid #f1f5f9;padding:.45rem .75rem}
-    .hl{background:#fff7cc} /* resalte de fila */
+    .hl{background:#fff7cc}
     .table-actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
@@ -128,7 +128,7 @@
       <canvas id="chart"></canvas>
     </section>
 
-    <!-- Tabla (debajo de la gráfica) + consultas puntuales -->
+    <!-- Tabla (debajo de la gráfica) + consultas punteras -->
     <section class="card stack" id="tableCard" style="display:none">
       <div class="table-actions">
         <h2 style="margin:0">Tabla – Interpolación</h2>
@@ -138,17 +138,17 @@
         </div>
       </div>
 
-      <!-- Mini laboratorio de consultas -->
+      <!-- Mini laboratorio -->
       <div class="row">
         <div>
           <label class="muted" for="qEps">Calcular σ a partir de ε</label><br>
-          <input id="qEps" type="number" step="0.0001" placeholder="ε (ej. 0.1234)" />
+          <input id="qEps" type="number" step="0.000001" placeholder="ε (ej. 0.123456)" />
           <button class="btn" id="btnSolveSigma">σ(ε)</button>
           <span class="muted" id="outSigma"></span>
         </div>
         <div>
           <label class="muted" for="qSig">Calcular ε a partir de σ</label><br>
-          <input id="qSig" type="number" step="0.01" placeholder="σ (ej. 42.5)" />
+          <input id="qSig" type="number" step="0.001" placeholder="σ (ej. 42.5)" />
           <button class="btn" id="btnSolveEps">ε(σ)</button>
           <span class="muted" id="outEps"></span>
         </div>
@@ -159,40 +159,27 @@
           <thead>
             <tr><th>#</th><th>Deformación ε</th><th>Esfuerzo σ</th></tr>
           </thead>
-          <tbody id="tblBody"></tbody>
+        <tbody id="tblBody"></tbody>
         </table>
       </div>
     </section>
   </main>
 
-  <!-- Ruta ABSOLUTA a tu CSV en GitHub Pages -->
-  <script>
-    const CSV_URL = 'https://marioduranf47-hue.github.io/Interfaz_PA66_Pruebe/curvas_PA66_tidy.csv';
-  </script>
+  <!-- Ruta ABSOLUTA a tu CSV -->
+  <script>const CSV_URL='https://marioduranf47-hue.github.io/Interfaz_PA66_Pruebe/curvas_PA66_tidy.csv';</script>
 
   <script>
   (function(){
-    /* === Calidad === */
     const DPR = Math.max(2, window.devicePixelRatio || 1);
 
-    /* === Densidad y estética === */
-    const DENSE_N   = 600;
-    const INTERP_N  = 600;
-    const RAW_SHOW  = 400;
-    const RAW_SIZE  = 2.2;
-    const KNOT_POS  = [0.30, 0.60, 0.85];
-    const KNOT_SIZE = 6;
+    const DENSE_N=600, INTERP_N=600, RAW_SHOW=400, RAW_SIZE=2.2, KNOT_POS=[0.30,0.60,0.85], KNOT_SIZE=6;
+    const TARGET_TICKS_X=10, TARGET_TICKS_Y=10;
 
-    /* === Ejes 10×10 === */
-    const TARGET_TICKS_X = 10, TARGET_TICKS_Y = 10;
-
-    /* === Refs === */
     const selA=document.getElementById('selA'), selB=document.getElementById('selB');
     const btnCompare=document.getElementById('compare'), tTarget=document.getElementById('tTarget'), btnInterp=document.getElementById('interp');
     const picked=document.getElementById('picked'), hint=document.getElementById('hint');
     const canvas=document.getElementById('chart');
 
-    /* Tabla & consultas */
     const tableCard=document.getElementById('tableCard');
     const tblBody=document.getElementById('tblBody');
     const tblMeta=document.getElementById('tblMeta');
@@ -203,362 +190,209 @@
 
     let seriesMap=new Map(), temps=[], chart, lastInterpolated=null;
 
-    /* === Utils === */
-    const PALETTE=["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"]; let colorIdx=0; const nextColor=()=>PALETTE[colorIdx++%PALETTE.length];
+    /* NUEVO: marcador visible en la gráfica */
+    let markerPoint=null; // {x,y,label}
+
+    const PALETTE=["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"]; 
+    let colorIdx=0; 
+    const nextColor=()=>PALETTE[colorIdx++%PALETTE.length];
+
     function niceStep(min,max,target){ const span=Math.max(1e-12,max-min), rough=span/target; const pow10=Math.pow(10,Math.floor(Math.log10(rough)));
       const norm=rough/pow10; let nice = norm<=1?1:norm<=2?2:norm<=2.5?2.5:norm<=5?5:10; return nice*pow10; }
     function subsampleEven(arr,maxN){ if(!arr||arr.length<=maxN) return arr||[]; const step=Math.ceil(arr.length/maxN), out=[];
       for(let i=0;i<arr.length;i+=step) out.push(arr[i]); if(out.at(-1)!==arr.at(-1)) out.push(arr.at(-1)); return out; }
 
-    function showHint(msg, isError=false){
-      const host = hint || picked;
-      if (host) {
-        host.textContent = msg;
-        host.style.color = isError ? '#b91c1c' : '';
-      }
-    }
+    function showHint(msg,isErr=false){ const host=hint||picked; if(host){ host.textContent=msg; host.style.color=isErr?'#b91c1c':''; } }
 
-    /* === PCHIP === */
-    function pchipSlopes(x,y){
-      const n=x.length; const h=new Array(n-1), d=new Array(n-1);
+    function pchipSlopes(x,y){ const n=x.length; const h=new Array(n-1), d=new Array(n-1);
       for(let i=0;i<n-1;i++){ h[i]=x[i+1]-x[i]; d[i]=(y[i+1]-y[i])/h[i]; }
       const m=new Array(n);
-      m[0] = ((2*h[0]+h[1])*d[0] - h[0]*d[1])/(h[0]+h[1]);
-      if (Math.sign(m[0]) !== Math.sign(d[0])) m[0]=0;
-      else if (Math.sign(d[0]) !== Math.sign(d[1]) && Math.abs(m[0]) > 2*Math.abs(d[0])) m[0]=2*d[0];
-
-      m[n-1] = ((2*h[n-2]+h[n-3])*d[n-2] - h[n-2]*d[n-3])/(h[n-3]+h[n-2]);
-      if (Math.sign(m[n-1]) !== Math.sign(d[n-2])) m[n-1]=0;
-      else if (Math.sign(d[n-2]) !== Math.sign(d[n-3]) && Math.abs(m[n-1]) > 2*Math.abs(d[n-2])) m[n-1]=2*d[n-2];
-
-      for(let i=1;i<=n-2;i++){
-        if (d[i-1]*d[i] <= 0) m[i]=0;
-        else{
-          const w1 = 2*h[i] + h[i-1];
-          const w2 = h[i] + 2*h[i-1];
-          m[i] = (w1 + w2) / (w1/d[i-1] + w2/d[i]);
-        }
-      }
-      return {h,d,m};
-    }
-    function pchipEval(x,y,slopes,xq){
-      const n=x.length;
-      if (xq<=x[0]) return y[0];
-      if (xq>=x[n-1]) return y[n-1];
+      m[0]=((2*h[0]+h[1])*d[0]-h[0]*d[1])/(h[0]+h[1]); if(Math.sign(m[0])!==Math.sign(d[0])) m[0]=0;
+      else if(Math.sign(d[0])!==Math.sign(d[1]) && Math.abs(m[0])>2*Math.abs(d[0])) m[0]=2*d[0];
+      m[n-1]=((2*h[n-2]+h[n-3])*d[n-2]-h[n-2]*d[n-3])/(h[n-3]+h[n-2]); if(Math.sign(m[n-1])!==Math.sign(d[n-2])) m[n-1]=0;
+      else if(Math.sign(d[n-2])!==Math.sign(d[n-3]) && Math.abs(m[n-1])>2*Math.abs(d[n-2])) m[n-1]=2*d[n-2];
+      for(let i=1;i<=n-2;i++){ if(d[i-1]*d[i]<=0) m[i]=0; else{ const w1=2*h[i]+h[i-1], w2=h[i]+2*h[i-1]; m[i]=(w1+w2)/(w1/d[i-1]+w2/d[i]); } }
+      return {h,d,m}; }
+    function pchipEval(x,y,s,xq){ const n=x.length;
+      if (xq<=x[0]) return y[0]; if (xq>=x[n-1]) return y[n-1];
       let lo=0,hi=n-1; while(hi-lo>1){ const mid=(lo+hi)>>1; (x[mid]<=xq)?(lo=mid):(hi=mid); }
-      const h= x[lo+1]-x[lo], t=(xq - x[lo])/h;
-      const y0=y[lo], y1=y[lo+1], m0=slopes.m[lo], m1=slopes.m[lo+1];
+      const h=x[lo+1]-x[lo], t=(xq-x[lo])/h, y0=y[lo], y1=y[lo+1], m0=s.m[lo], m1=s.m[lo+1];
       const h00=(2*t**3-3*t**2+1), h10=(t**3-2*t**2+t), h01=(-2*t**3+3*t**2), h11=(t**3-t**2);
-      return h00*y0 + h10*h*m0 + h01*y1 + h11*h*m1;
-    }
-    function pchipSample(points,N){
-      if(!points || points.length<2) return points||[];
-      const x = points.map(p=>p.x), y=points.map(p=>p.y);
-      const slopes = pchipSlopes(x,y);
-      const xmin=x[0], xmax=x.at(-1);
-      const grid = Array.from({length:N},(_,i)=> xmin+(xmax-xmin)*i/(N-1));
-      return grid.map(xx=>({x:xx,y:pchipEval(x,y,slopes,xx)}));
-    }
+      return h00*y0 + h10*h*m0 + h01*y1 + h11*h*m1; }
+    function pchipSample(points,N){ if(!points||points.length<2) return points||[]; const x=points.map(p=>p.x), y=points.map(p=>p.y);
+      const s=pchipSlopes(x,y); const xmin=x[0], xmax=x.at(-1);
+      const grid=Array.from({length:N},(_,i)=> xmin+(xmax-xmin)*i/(N-1)); return grid.map(xx=>({x:xx,y:pchipEval(x,y,s,xx)})); }
 
-    /* === Cargar CSV === */
     function loadFromUrl(url){
-      Papa.parse(url, {
-        download: true,
-        header: true,
-        skipEmptyLines: 'greedy',
-        dynamicTyping: false,
-        complete: (res) => {
-          try {
-            if (!res || !res.data) throw new Error('Sin respuesta del parser.');
-            const rows = res.data.filter(r => Object.keys(r||{}).length > 0);
-            if (!rows.length) throw new Error('CSV vacío o encabezado incorrecto.');
+      Papa.parse(url,{download:true,header:true,skipEmptyLines:'greedy',dynamicTyping:false,
+        complete:(res)=>{
+          try{
+            if(!res||!res.data) throw new Error('Sin respuesta del parser.');
+            const rows=res.data.filter(r=>Object.keys(r||{}).length>0);
+            if(!rows.length) throw new Error('CSV vacío o encabezado incorrecto.');
             detectFromTidy(rows);
-            if (!temps.length) throw new Error('No se detectaron temperaturas.');
-            fillSelect(selA, temps, temps[0]);
-            fillSelect(selB, temps, temps[temps.length - 1]);
+            if(!temps.length) throw new Error('No se detectaron temperaturas.');
+            fillSelect(selA,temps,temps[0]); fillSelect(selB,temps,temps.at(-1));
             compareCurves();
             showHint('Este simulador funciona con temperaturas desde -40 hasta 150 °C.');
-          } catch (err) {
-            showHint('Error leyendo CSV: ' + err.message, true);
-          }
+          }catch(e){ showHint('Error leyendo CSV: '+e.message,true); }
         },
-        error: (err) => showHint('No se pudo descargar el CSV: ' + err.message, true)
+        error:(e)=>showHint('No se pudo descargar el CSV: '+e.message,true)
       });
     }
 
-    /* === Parseo tolerante === */
     function detectFromTidy(rows){
-      const normalizeKey = s => String(s||'')
-        .trim().toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-        .replace(/\s+/g,' ')
-        .replace(/[^a-z0-9 _-]/g,'');
-
-      const keys = Object.keys(rows[0] || {});
-      const keyMap = {};
-      keys.forEach(k => keyMap[normalizeKey(k)] = k);
-
-      const colT = keyMap['temperatura'] || keyMap['temp'] || keyMap['t'] || keyMap['t (c)'] || keyMap['t c'];
-      const colX = keyMap['deformacion'] || keyMap['strain'] || keyMap['xtension'] || keyMap['x'] || keyMap['epsilon'];
-      const colY = keyMap['esfuerzo'] || keyMap['stress'] || keyMap['sigma'] || keyMap['y'];
-
-      if (!colT || !colX || !colY) {
-        throw new Error(
-          `No encontré columnas. Encabezados vistos: [${keys.join(', ')}]. ` +
-          `Necesito Temperatura / Deformacion (o Strain/Xtension) / Esfuerzo (o Stress).`
-        );
-      }
-
-      function asNum(v){
-        if (v === '' || v == null) return NaN;
-        const s = String(v).replace(',', '.').trim();
-        const n = Number(s);
-        return Number.isFinite(n) ? n : NaN;
-      }
+      const norm=k=>String(k||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').replace(/[^a-z0-9 _-]/g,'');
+      const keys=Object.keys(rows[0]||{}), keyMap={}; keys.forEach(k=>keyMap[norm(k)]=k);
+      const colT=keyMap['temperatura']||keyMap['temp']||keyMap['t']||keyMap['t (c)']||keyMap['t c'];
+      const colX=keyMap['deformacion']||keyMap['strain']||keyMap['xtension']||keyMap['x']||keyMap['epsilon'];
+      const colY=keyMap['esfuerzo']||keyMap['stress']||keyMap['sigma']||keyMap['y'];
+      if(!colT||!colX||!colY){ throw new Error(`No encontré columnas. Vistas: [${keys.join(', ')}].`); }
+      const asNum=v=>{ if(v===''||v==null) return NaN; const s=String(v).replace(',','.').trim(); const n=Number(s); return Number.isFinite(n)?n:NaN; };
 
       seriesMap.clear();
-      for (const r of rows) {
-        const T = asNum(r[colT]);
-        const x = asNum(r[colX]);
-        const y = asNum(r[colY]);
-        if (!Number.isFinite(T) || !Number.isFinite(x) || !Number.isFinite(y)) continue;
-        if (!seriesMap.has(T)) seriesMap.set(T, []);
-        seriesMap.get(T).push({ x, y });
+      for(const r of rows){
+        const T=asNum(r[colT]), x=asNum(r[colX]), y=asNum(r[colY]);
+        if(!Number.isFinite(T)||!Number.isFinite(x)||!Number.isFinite(y)) continue;
+        if(!seriesMap.has(T)) seriesMap.set(T,[]);
+        seriesMap.get(T).push({x,y});
       }
-
-      for (const [T, arr] of Array.from(seriesMap.entries())) {
+      for(const [T,arr] of Array.from(seriesMap.entries())){
         arr.sort((a,b)=>a.x-b.x);
-        const clean = arr.filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
-        if (clean.length >= 2) seriesMap.set(T, clean); else seriesMap.delete(T);
+        const clean=arr.filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));
+        if(clean.length>=2) seriesMap.set(T,clean); else seriesMap.delete(T);
       }
-
-      temps = [...seriesMap.keys()].sort((a,b)=>a-b);
+      temps=[...seriesMap.keys()].sort((a,b)=>a-b);
     }
 
-    /* === UI helpers === */
-    function fillSelect(el,arr,def){
-      el.innerHTML='';
-      arr.forEach(t=>{
-        const o=document.createElement('option');
-        o.value=t;
-        o.textContent=`${t} °C`;
-        if(t===def) o.selected=true;
-        el.appendChild(o);
-      });
-    }
-    const lineDataset=(label,data,color,dashed=false)=>({type:'line',label,data,borderColor:color,backgroundColor:color,borderWidth:2,
-      cubicInterpolationMode:undefined,tension:0,pointRadius:0,borderDash:dashed?[6,4]:undefined,fill:false,showLine:true});
-    const pointsDataset=(label,data,color)=>({type:'line',label:label+' • puntos',data,borderColor:'transparent',backgroundColor:color,pointBorderColor:color,
-      pointBackgroundColor:color,pointRadius:RAW_SIZE,pointHoverRadius:RAW_SIZE+1.2,showLine:false});
-    const knotDataset=(label,data,color)=>({type:'scatter',label:label+' • nudos',data,showLine:false,pointRadius:KNOT_SIZE,
-      pointBackgroundColor:color,pointBorderColor:'#fff',pointBorderWidth:1.5});
+    function fillSelect(el,arr,def){ el.innerHTML=''; arr.forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=`${t} °C`; if(t===def) o.selected=true; el.appendChild(o); }); }
+    const lineDs=(label,data,color,dash=false)=>({type:'line',label,data,borderColor:color,backgroundColor:color,borderWidth:2,tension:0,pointRadius:0,borderDash:dash?[6,4]:undefined,fill:false,showLine:true});
+    const ptsDs=(label,data,color)=>({type:'line',label:label+' • puntos',data,borderColor:'transparent',backgroundColor:color,pointBorderColor:color,pointBackgroundColor:color,pointRadius:RAW_SIZE,pointHoverRadius:RAW_SIZE+1.2,showLine:false});
+    const knotDs=(label,data,color)=>({type:'scatter',label:label+' • nudos',data,showLine:false,pointRadius:KNOT_SIZE,pointBackgroundColor:color,pointBorderColor:'#fff',pointBorderWidth:1.5});
 
-    function makeKnotsFromDense(dense){
-      if(!dense || dense.length<2) return [];
-      const xmin=dense[0].x, xmax=dense.at(-1).x;
-      return KNOT_POS.map(f=>{
-        const x = xmin + (xmax - xmin)*f;
-        let best=dense[0], bd=Math.abs(dense[0].x - x);
-        for(const p of dense){ const d=Math.abs(p.x-x); if(d<bd){bd=d; best=p;} }
-        return {x:best.x, y:best.y};
-      });
-    }
+    function makeKnots(dense){ if(!dense||dense.length<2) return []; const xmin=dense[0].x,xmax=dense.at(-1).x;
+      return KNOT_POS.map(f=>{ const x=xmin+(xmax-xmin)*f; let best=dense[0],bd=Math.abs(best.x-x); for(const p of dense){ const d=Math.abs(p.x-x); if(d<bd){bd=d; best=p;} } return {x:best.x,y:best.y}; }); }
 
-    function computeExtents(datasets){
-      let xMax=-Infinity,yMax=-Infinity;
-      for(const ds of datasets){ for(const p of ds.data){ if(p.x>xMax) xMax=p.x; if(p.y>yMax) yMax=p.y; } }
-      if(!isFinite(xMax)) xMax=1; if(!isFinite(yMax)) yMax=1; return {xMax,yMax};
-    }
-    function chartOptionsFor(datasets){
-      const {xMax,yMax}=computeExtents(datasets);
-      const xStep=niceStep(0,xMax,TARGET_TICKS_X), yStep=niceStep(0,yMax,TARGET_TICKS_Y);
+    function computeExtents(dsets){ let xM=-Infinity,yM=-Infinity; for(const ds of dsets){ for(const p of ds.data){ if(p.x>xM) xM=p.x; if(p.y>yM) yM=p.y; } } if(!isFinite(xM)) xM=1; if(!isFinite(yM)) yM=1; return {xMax:xM,yMax:yM}; }
+    function chartOpts(dsets){ const {xMax,yMax}=computeExtents(dsets); const xStep=niceStep(0,xMax,TARGET_TICKS_X), yStep=niceStep(0,yMax,TARGET_TICKS_Y);
       const xMaxNice=Math.ceil(xMax/xStep)*xStep, yMaxNice=Math.ceil(yMax/yStep)*yStep;
-      return {
-        responsive:true, parsing:false, maintainAspectRatio:false, devicePixelRatio:DPR,
-        interaction:{mode:'nearest',intersect:false},
-        plugins:{
-          legend:{display:true,labels:{color:'#333',usePointStyle:true}},
-          tooltip:{backgroundColor:'rgba(20,20,28,.9)',borderColor:'rgba(255,255,255,.08)',borderWidth:1,
-                   callbacks:{label:(c)=>`(ε=${c.parsed.x.toFixed(4)}, σ=${c.parsed.y.toFixed(2)})`}},
-          decimation:{enabled:true,algorithm:'lttb',samples:1500}
-        },
-        scales:{
-          x:{type:'linear',min:0,max:xMaxNice,ticks:{stepSize:xStep,color:'#333'},grid:{color:'#e6e6e6'},
-             title:{display:true,text:'Deformación (ε)',color:'#333'}},
-          y:{type:'linear',min:0,max:yMaxNice,ticks:{stepSize:yStep,color:'#333'},grid:{color:'#e6e6e6'},
-             title:{display:true,text:'Esfuerzo (σ)',color:'#333'}}
-        },
-        elements:{point:{radius:0}}
+      return {responsive:true,parsing:false,maintainAspectRatio:false,devicePixelRatio:DPR,interaction:{mode:'nearest',intersect:false},
+        plugins:{legend:{display:true,labels:{color:'#333',usePointStyle:true}},tooltip:{backgroundColor:'rgba(20,20,28,.9)',borderColor:'rgba(255,255,255,.08)',borderWidth:1,callbacks:{label:(c)=>`(ε=${c.parsed.x.toFixed(4)}, σ=${c.parsed.y.toFixed(2)})`}},decimation:{enabled:true,algorithm:'lttb',samples:1500}},
+        scales:{x:{type:'linear',min:0,max:xMaxNice,ticks:{stepSize:xStep,color:'#333'},grid:{color:'#e6e6e6'},title:{display:true,text:'Deformación (ε)',color:'#333'}},
+                y:{type:'linear',min:0,max:yMaxNice,ticks:{stepSize:yStep,color:'#333'},grid:{color:'#e6e6e6'},title:{display:true,text:'Esfuerzo (σ)',color:'#333'}}}; }
+
+    function buildCurve(T,raw,color){ const dense=pchipSample(raw,DENSE_N); return [ lineDs(`${T} °C (línea)`,dense,color), ptsDs(`${T} °C`,subsampleEven(raw,RAW_SHOW),color), knotDs(`${T} °C`,makeKnots(dense),color) ]; }
+
+    function markerDataset(){ if(!markerPoint) return null;
+      return { type:'scatter',
+        label:`Punto buscado (ε=${markerPoint.x.toFixed(4)}, σ=${markerPoint.y.toFixed(2)})`,
+        data:[{x:markerPoint.x,y:markerPoint.y}],
+        pointRadius:9, pointHoverRadius:11,
+        pointBackgroundColor:'#111', pointBorderColor:'#fff', pointBorderWidth:2
       };
     }
 
-    function buildCurveDatasets(T, raw, color){
-      const dense = pchipSample(raw, DENSE_N);
-      return [
-        lineDataset(`${T} °C (línea)`, dense, color),
-        pointsDataset(`${T} °C`, subsampleEven(raw,RAW_SHOW), color),
-        knotDataset(`${T} °C`, makeKnotsFromDense(dense), color)
-      ];
-    }
-
-    function makeChart(datasets){
-      if(chart) chart.destroy();
-      chart = new Chart(canvas, { type:'line', data:{datasets}, options: chartOptionsFor(datasets) });
-    }
+    function makeChart(dsets){ if(chart) chart.destroy(); chart=new Chart(canvas,{type:'line',data:{datasets:dsets},options:chartOpts(dsets)}); }
 
     function compareCurves(){
       const a=Number(selA.value), b=Number(selB.value);
       const ds=[];
-      if(Number.isFinite(a)){ const c=nextColor(); ds.push(...buildCurveDatasets(a, seriesMap.get(a), c)); }
-      if(Number.isFinite(b)){ const c=nextColor(); ds.push(...buildCurveDatasets(b, seriesMap.get(b), c)); }
-      if(lastInterpolated){
-        const c=nextColor();
-        ds.unshift( lineDataset(`Interp ${lastInterpolated.T} °C`, lastInterpolated.data, c, true) );
-        ds.unshift( knotDataset(`Interp ${lastInterpolated.T} °C`, makeKnotsFromDense(lastInterpolated.data), c) );
-      }
+      if(Number.isFinite(a)){ const c=nextColor(); ds.push(...buildCurve(a,seriesMap.get(a),c)); }
+      if(Number.isFinite(b)){ const c=nextColor(); ds.push(...buildCurve(b,seriesMap.get(b),c)); }
+      if(lastInterpolated){ const c=nextColor(); ds.unshift(lineDs(`Interp ${lastInterpolated.T} °C`,lastInterpolated.data,c,true)); ds.unshift(knotDs(`Interp ${lastInterpolated.T} °C`,makeKnots(lastInterpolated.data),c)); }
+      const mk=markerDataset(); if(mk) ds.push(mk);  // <-- añade el marcador
       picked.textContent=`Curvas: ${Number.isFinite(a)?a+' °C':''} ${Number.isFinite(b)?' | '+b+' °C':''}`;
       makeChart(ds);
     }
 
-    function interpolateAtTemp(Tstar){
-      if(temps.length<2) throw new Error('Se requieren al menos 2 temperaturas.');
-      let t1=null,t2=null;
-      for(let i=0;i<temps.length-1;i++){ if(Tstar>=temps[i] && Tstar<=temps[i+1]){ t1=temps[i]; t2=temps[i+1]; break; } }
-      if(t1===null){ if(Tstar<temps[0]){t1=temps[0]; t2=temps[1];} else {t1=temps.at(-2); t2=temps.at(-1);} }
-
-      const A = seriesMap.get(t1).slice();
-      const B = seriesMap.get(t2).slice();
+    function interpolateAtTemp(T){ if(temps.length<2) throw new Error('Se requieren al menos 2 temperaturas.');
+      let t1=null,t2=null; for(let i=0;i<temps.length-1;i++){ if(T>=temps[i]&&T<=temps[i+1]){t1=temps[i];t2=temps[i+1];break;} }
+      if(t1===null){ if(T<temps[0]){t1=temps[0];t2=temps[1];} else {t1=temps.at(-2);t2=temps.at(-1);} }
+      const A=seriesMap.get(t1).slice(), B=seriesMap.get(t2).slice();
       const xmin=Math.max(A[0].x,B[0].x), xmax=Math.min(A.at(-1).x,B.at(-1).x);
       const grid=Array.from({length:INTERP_N},(_,i)=> xmin+(xmax-xmin)*i/(INTERP_N-1));
-
       const xA=A.map(p=>p.x), yA=A.map(p=>p.y), sA=pchipSlopes(xA,yA);
       const xB=B.map(p=>p.x), yB=B.map(p=>p.y), sB=pchipSlopes(xB,yB);
-      const alpha=(Tstar-t1)/(t2-t1);
+      const alpha=(T-t1)/(t2-t1);
+      const data=grid.map(x=>({x, y: pchipEval(xA,yA,sA,x) + alpha*(pchipEval(xB,yB,sB,x) - pchipEval(xA,yA,sA,x))}));
+      lastInterpolated={T,data,t1,t2}; return lastInterpolated; }
 
-      const data=grid.map(x=>{
-        const y1=pchipEval(xA,yA,sA,x);
-        const y2=pchipEval(xB,yB,sB,x);
-        return {x, y: y1 + alpha*(y2 - y1)};
-      });
-      lastInterpolated={T:Tstar,data,t1,t2}; return lastInterpolated;
-    }
+    function sigmaFromEps(curve,eps){ if(!curve||!curve.data||!curve.data.length) return null; const arr=curve.data;
+      if(eps<=arr[0].x) return arr[0].y; if(eps>=arr.at(-1).x) return arr.at(-1).y;
+      let lo=0,hi=arr.length-1; while(hi-lo>1){ const mid=(lo+hi)>>1; (arr[mid].x<=eps)?lo=mid:hi=mid; }
+      const x0=arr[lo].x,y0=arr[lo].y,x1=arr[hi].x,y1=arr[hi].y; const t=(eps-x0)/(x1-x0); return y0+t*(y1-y0); }
+    function epsFromSigma(curve,sig){ if(!curve||!curve.data||!curve.data.length) return null; const arr=curve.data;
+      for(let i=0;i<arr.length-1;i++){ const y0=arr[i].y,y1=arr[i+1].y; if((sig>=y0&&sig<=y1)||(sig<=y0&&sig>=y1)){ const x0=arr[i].x,x1=arr[i+1].x; const t=(sig-y0)/(y1-y0||1e-12); return x0+t*(x1-x0); } }
+      return (Math.abs(sig-arr[0].y)<Math.abs(sig-arr.at(-1).y))?arr[0].x:arr.at(-1).x; }
 
-    /* === Interpolación directa σ(ε) y “inversa” ε(σ) sobre la curva interpolada === */
-    function sigmaFromEps(curve, eps){
-      if(!curve || !curve.data || !curve.data.length) return null;
-      const arr = curve.data;         // arr ordenado por x (= ε)
-      if (eps <= arr[0].x) return arr[0].y;
-      if (eps >= arr.at(-1).x) return arr.at(-1).y;
-      // búsqueda binaria
-      let lo=0, hi=arr.length-1;
-      while(hi-lo>1){
-        const mid=(lo+hi)>>1;
-        (arr[mid].x <= eps) ? lo=mid : hi=mid;
-      }
-      const x0=arr[lo].x,  y0=arr[lo].y;
-      const x1=arr[hi].x,  y1=arr[hi].y;
-      const t=(eps-x0)/(x1-x0);
-      return y0 + t*(y1-y0);
-    }
-
-    function epsFromSigma(curve, sig){
-      if(!curve || !curve.data || !curve.data.length) return null;
-      const arr = curve.data;         // y suele ser monótono creciente
-      // buscamos segmento donde y cruza sig
-      for(let i=0;i<arr.length-1;i++){
-        const y0=arr[i].y, y1=arr[i+1].y;
-        if ((sig>=y0 && sig<=y1) || (sig<=y0 && sig>=y1)){
-          const x0=arr[i].x, x1=arr[i+1].x;
-          const t=(sig - y0)/(y1 - y0 || 1e-12);
-          return x0 + t*(x1 - x0);
-        }
-      }
-      // fuera de rango → devolvemos extremo más cercano
-      return (Math.abs(sig-arr[0].y) < Math.abs(sig-arr.at(-1).y)) ? arr[0].x : arr.at(-1).x;
-    }
-
-    function highlightClosestRow(value, by='x'){ // by: 'x' o 'y'
-      // resalta la fila cuyo ε (o σ) esté más cerca del valor consultado
-      const rows = Array.from(tblBody.querySelectorAll('tr'));
-      if (!rows.length) return;
+    function highlightClosestRow(val,by='x'){
+      const rows=[...tblBody.querySelectorAll('tr')]; if(!rows.length) return;
       rows.forEach(r=>r.classList.remove('hl'));
-      let best=null, bestDist=Infinity, bestEl=null;
+      let bestEl=null,best=Infinity;
       rows.forEach(r=>{
-        const eps=parseFloat(r.children[1].textContent);
-        const sig=parseFloat(r.children[2].textContent);
-        const v = (by==='x') ? eps : sig;
-        const d = Math.abs(v - value);
-        if(d<bestDist){ bestDist=d; best=v; bestEl=r; }
+        const eps=parseFloat(r.children[1].textContent), sig=parseFloat(r.children[2].textContent);
+        const v=(by==='x')?eps:sig, d=Math.abs(v-val); if(d<best){best=d; bestEl=r;}
       });
-      if (bestEl){ bestEl.classList.add('hl'); bestEl.scrollIntoView({block:'center',behavior:'smooth'}); }
+      if(bestEl){ bestEl.classList.add('hl'); bestEl.scrollIntoView({block:'center',behavior:'smooth'}); }
     }
 
-    /* === Tabla: render y descarga === */
     function renderInterpTable(curve){
-      if(!curve || !curve.data || !curve.data.length){ tableCard.style.display='none'; return; }
+      if(!curve||!curve.data||!curve.data.length){ tableCard.style.display='none'; return; }
       tblBody.innerHTML='';
-      curve.data.forEach((p,idx)=>{
-        const tr=document.createElement('tr');
-        tr.innerHTML = `<td>${idx+1}</td><td>${p.x.toFixed(6)}</td><td>${p.y.toFixed(4)}</td>`;
-        tblBody.appendChild(tr);
-      });
-      tblMeta.textContent = `T = ${curve.T} °C • ${curve.data.length} puntos (ε, σ)`;
+      curve.data.forEach((p,i)=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${i+1}</td><td>${p.x.toFixed(6)}</td><td>${p.y.toFixed(4)}</td>`; tblBody.appendChild(tr); });
+      tblMeta.textContent=`T = ${curve.T} °C • ${curve.data.length} puntos (ε, σ)`;
       tableCard.style.display='block';
     }
 
     function downloadInterpCSV(curve){
-      if(!curve || !curve.data) return;
-      const header = 'epsilon,sigma\n';
-      const rows = curve.data.map(p=>`${p.x},${p.y}`).join('\n');
-      const blob = new Blob([header + rows], {type:'text/csv;charset=utf-8;'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `interpolado_${curve.T}C.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const header='epsilon,sigma\n', rows=curve.data.map(p=>`${p.x},${p.y}`).join('\n');
+      const blob=new Blob([header+rows],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob);
+      const a=document.createElement('a'); a.href=url; a.download=`interpolado_${curve.T}C.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     }
 
-    /* === Eventos === */
+    /* NUEVO: setear marcador y refrescar gráfica */
+    function setMarker(x,y){ markerPoint={x,y}; compareCurves(); }
+
+    /* Eventos */
     btnCompare.addEventListener('click', compareCurves);
+
     btnInterp.addEventListener('click', ()=>{
-      const T=Number(tTarget.value); if(!Number.isFinite(T)){showHint('Ingresa una temperatura objetivo.', true);return;}
-      try{
-        const res=interpolateAtTemp(T);
-        hint.textContent=`Interpolado usando: ${res.t1} °C y ${res.t2} °C`;
-        compareCurves();
-        renderInterpTable(res);
-        tableCard.scrollIntoView({behavior:'smooth'});
-      }catch(err){ showHint(err.message, true); }
+      const T=Number(tTarget.value); if(!Number.isFinite(T)){showHint('Ingresa una temperatura objetivo.',true);return;}
+      try{ const res=interpolateAtTemp(T); hint.textContent=`Interpolado usando: ${res.t1} °C y ${res.t2} °C`; compareCurves(); renderInterpTable(res); tableCard.scrollIntoView({behavior:'smooth'}); }
+      catch(e){ showHint(e.message,true); }
     });
 
     btnDownload.addEventListener('click', ()=> lastInterpolated && downloadInterpCSV(lastInterpolated));
 
     btnSolveSigma.addEventListener('click', ()=>{
-      const eps = Number(qEps.value);
-      if(!Number.isFinite(eps) || !lastInterpolated){ outSigma.textContent=''; return; }
-      const sig = sigmaFromEps(lastInterpolated, eps);
-      outSigma.textContent = Number.isFinite(sig) ? `→ σ ≈ ${sig.toFixed(4)}` : 'Fuera de rango';
-      highlightClosestRow(eps,'x');
+      const eps=Number(qEps.value); if(!Number.isFinite(eps)||!lastInterpolated){ outSigma.textContent=''; return; }
+      const sig=sigmaFromEps(lastInterpolated,eps);
+      outSigma.textContent=Number.isFinite(sig)?`→ σ ≈ ${sig.toFixed(4)}`:'Fuera de rango';
+      highlightClosestRow(eps,'x'); setMarker(eps,sig);
     });
 
     btnSolveEps.addEventListener('click', ()=>{
-      const sig = Number(qSig.value);
-      if(!Number.isFinite(sig) || !lastInterpolated){ outEps.textContent=''; return; }
-      const eps = epsFromSigma(lastInterpolated, sig);
-      outEps.textContent = Number.isFinite(eps) ? `→ ε ≈ ${eps.toFixed(6)}` : 'Fuera de rango';
-      highlightClosestRow(sig,'y');
+      const sig=Number(qSig.value); if(!Number.isFinite(sig)||!lastInterpolated){ outEps.textContent=''; return; }
+      const eps=epsFromSigma(lastInterpolated,sig);
+      outEps.textContent=Number.isFinite(eps)?`→ ε ≈ ${eps.toFixed(6)}`:'Fuera de rango';
+      highlightClosestRow(sig,'y'); setMarker(eps,sig);
+    });
+
+    /* NUEVO: click en una fila de la tabla -> marcar en gráfica */
+    tblBody.addEventListener('click', (e)=>{
+      const tr=e.target.closest('tr'); if(!tr||!lastInterpolated) return;
+      const eps=parseFloat(tr.children[1].textContent), sig=parseFloat(tr.children[2].textContent);
+      tblBody.querySelectorAll('tr').forEach(r=>r.classList.remove('hl')); tr.classList.add('hl');
+      setMarker(eps,sig);
     });
 
     const ro=new ResizeObserver(()=>{ if(chart){ chart.options.devicePixelRatio=DPR; chart.resize(); }});
     ro.observe(canvas);
     window.addEventListener('orientationchange', ()=> chart && chart.resize());
 
-    /* === Init === */
     loadFromUrl(CSV_URL);
   })();
   </script>
 </body>
 </html>
+
