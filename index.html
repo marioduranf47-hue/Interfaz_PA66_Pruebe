@@ -156,7 +156,7 @@
     function subsampleEven(arr,maxN){ if(!arr||arr.length<=maxN) return arr||[]; const step=Math.ceil(arr.length/maxN), out=[];
       for(let i=0;i<arr.length;i+=step) out.push(arr[i]); if(out.at(-1)!==arr.at(-1)) out.push(arr.at(-1)); return out; }
 
-    /* === Mensajes de diagnóstico en la página === */
+    /* === Mensajes en página === */
     function showHint(msg, isError=false){
       const host = hint || picked;
       if (host) {
@@ -199,7 +199,7 @@
       return h00*y0 + h10*h*m0 + h01*y1 + h11*h*m1;
     }
     function pchipSample(points,N){
-      if(!points || points.length<2) return points||[];
+      if(!points || points.length<2) return points||{}
       const x = points.map(p=>p.x), y=points.map(p=>p.y);
       const slopes = pchipSlopes(x,y);
       const xmin=x[0], xmax=x.at(-1);
@@ -207,25 +207,25 @@
       return grid.map(xx=>({x:xx,y:pchipEval(x,y,slopes,xx)}));
     }
 
-    /* === Cargar CSV desde URL (robusto) === */
+    /* === Cargar CSV desde URL === */
     function loadFromUrl(url){
       Papa.parse(url, {
         download: true,
         header: true,
         skipEmptyLines: 'greedy',
-        dynamicTyping: false,        // convertimos nosotros
+        dynamicTyping: false,
         complete: (res) => {
           try {
             if (!res || !res.data) throw new Error('Sin respuesta del parser.');
             const rows = res.data.filter(r => Object.keys(r||{}).length > 0);
             if (!rows.length) throw new Error('CSV vacío o encabezado incorrecto.');
-            showHint(`CSV cargado: ${rows.length} filas. Procesando…`);
             detectFromTidy(rows);
             if (!temps.length) throw new Error('No se detectaron temperaturas.');
-            fillSelect(selA, temps, temps[0]);          // OK
-            fillSelect(selB, temps, temps.at(-1));
+            fillSelect(selA, temps, temps[0]);          // A = primera T
+            fillSelect(selB, temps, temps.at(-1));      // B = última T
             compareCurves();
-            showHint('');
+            // Mensaje solicitado
+            showHint('Este simulador funciona con temperaturas desde -40 hasta 150 °C.');
           } catch (err) {
             showHint('Error leyendo CSV: ' + err.message, true);
           }
@@ -234,7 +234,7 @@
       });
     }
 
-    /* === Parseo tolerante de encabezados y datos === */
+    /* === Parseo tolerante === */
     function detectFromTidy(rows){
       const normalizeKey = s => String(s||'')
         .trim().toLowerCase()
@@ -400,5 +400,3 @@
   </script>
 </body>
 </html>
-
-
